@@ -52,20 +52,14 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
 import android.os.ParcelFileDescriptor;
-import android.provider.MediaStore;
-import android.webkit.CookieManager;
-import android.webkit.MimeTypeMap;
 
-import androidx.annotation.RequiresApi;
+import android.webkit.CookieManager;
 
 public class FileTransfer extends CordovaPlugin {
 
@@ -186,7 +180,6 @@ public class FileTransfer extends CordovaPlugin {
         if (action.equals("upload") || action.equals("download")) {
             String source = args.getString(0);
             String target = args.getString(1);
-            System.out.println("actionactionactionactionaction" + action);
             if (action.equals("upload")) {
                 upload(source, target, args, callbackContext);
             } else {
@@ -927,53 +920,6 @@ public class FileTransfer extends CordovaPlugin {
         });
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.O)
-    private File copyFileToCache(Context applicationContext, String fileName) {
-        System.out.println("WORKING WORKING WORKING WORKINGWORKING WORKINGWORKING WORKING");
-        String pdf = MimeTypeMap.getSingleton().getMimeTypeFromExtension("pdf");
-        String doc = MimeTypeMap.getSingleton().getMimeTypeFromExtension("doc");
-        String docx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("docx");
-        String xls = MimeTypeMap.getSingleton().getMimeTypeFromExtension("xls");
-        String xlsx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("xlsx");
-        String ppt = MimeTypeMap.getSingleton().getMimeTypeFromExtension("ppt");
-        String pptx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("pptx");
-        String txt = MimeTypeMap.getSingleton().getMimeTypeFromExtension("txt");
-        String rtx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("rtx");
-        String rtf = MimeTypeMap.getSingleton().getMimeTypeFromExtension("rtf");
-        String html = MimeTypeMap.getSingleton().getMimeTypeFromExtension("html");
-
-        //Table
-        Uri table = MediaStore.Files.getContentUri("external");
-        //Column
-        String[] column = {MediaStore.Files.FileColumns.DATA};
-        //Where
-        String where = MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
-                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?";
-        //args
-        String[] args = new String[]{pdf,doc,docx,xls,xlsx,ppt,pptx,txt,rtx,rtf,html};
-
-
-        Cursor mediaCursor = applicationContext.getContentResolver().query(table, null, where, args, null);
-
-        while (mediaCursor.moveToNext()) {
-            String uri = mediaCursor.getString(mediaCursor.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME));
-            File file = new File(uri);
-
-            System.out.println(file.getName());
-        }
-
-        return new File(fileName);
-    }
-
     private void getPicture(final String uploadSource, final String uploadTarget, JSONArray uploadArgs, CallbackContext uploadCallbackContext) {
         source = uploadSource;
         target = uploadTarget;
@@ -1002,11 +948,7 @@ public class FileTransfer extends CordovaPlugin {
             Uri uri = null;
             if (resultData != null) {
                 uri = resultData.getData();
-                System.out.println("REACHED HERE --> REACHED HERE ---> REACHED HERE");
-                System.out.println(uri);
                 File newFile = copyFileAndGetPath(webView.getContext(), uri, "TEST");
-
-                System.out.println("FILE FILE ---> FILE FILEFILE FILE ---> FILE FILE");
 
                 try {
                     upload(newFile.getPath(), target, args, callbackContext);
@@ -1021,7 +963,6 @@ public class FileTransfer extends CordovaPlugin {
 
     private static File copyFileAndGetPath(Context context, Uri realUri, String filename) {
         ParcelFileDescriptor pfd = null;
-        System.out.println("filename --> filename --> filename--> filename" + filename);
         File outFile = new File(context.getCacheDir(), filename);
         try {
             pfd = context.getContentResolver().openFileDescriptor(realUri, "r");
