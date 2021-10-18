@@ -22,7 +22,9 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,9 +52,20 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
+import android.os.ParcelFileDescriptor;
+import android.provider.MediaStore;
 import android.webkit.CookieManager;
+import android.webkit.MimeTypeMap;
+
+import androidx.annotation.RequiresApi;
 
 public class FileTransfer extends CordovaPlugin {
 
@@ -66,6 +79,13 @@ public class FileTransfer extends CordovaPlugin {
     public static int CONNECTION_ERR = 3;
     public static int ABORTED_ERR = 4;
     public static int NOT_MODIFIED_ERR = 5;
+
+    String source = "";
+
+    String target = "";
+    JSONArray args;
+
+    CallbackContext callbackContext;
 
     private static HashMap<String, RequestContext> activeRequests = new HashMap<String, RequestContext>();
     private static final int MAX_BUFFER_SIZE = 16 * 1024;
@@ -166,7 +186,7 @@ public class FileTransfer extends CordovaPlugin {
         if (action.equals("upload") || action.equals("download")) {
             String source = args.getString(0);
             String target = args.getString(1);
-
+            System.out.println("actionactionactionactionaction" + action);
             if (action.equals("upload")) {
                 upload(source, target, args, callbackContext);
             } else {
@@ -267,6 +287,7 @@ public class FileTransfer extends CordovaPlugin {
     private void upload(final String source, final String target, JSONArray args, CallbackContext callbackContext) throws JSONException {
         LOG.d(LOG_TAG, "upload " + source + " to " +  target);
 
+
         // Setup the options
         final String fileKey = getArgument(args, 2, "file");
         final String fileName = getArgument(args, 3, "image.jpg");
@@ -315,9 +336,32 @@ public class FileTransfer extends CordovaPlugin {
                 // We should call remapUri on background thread otherwise it throws
                 // IllegalStateException when trying to remap 'cdvfile://localhost/content/...' URIs
                 // via ContentFilesystem (see https://issues.apache.org/jira/browse/CB-9022)
-                Uri tmpSrc = Uri.parse(source);
+//                Uri tmpSrc = Uri.parse(source);
+//                final Uri sourceUri = resourceApi.remapUri(
+//                        tmpSrc.getScheme() != null ? tmpSrc : Uri.fromFile(new File(source)));
+//
+                String parentPath = new File(source).getParent().toString();
+
+                System.out.println("parentPath --> parentPath" + parentPath);
+
+                System.out.println(parentPath.contains("cache"));
+
+                File newFile = new File(source);
+                boolean isFileSavedInCahed = false;
+
+                System.out.println("Build.VERSION.SDK_INT - -- Build.VERSION.SDK_INT" + Build.VERSION.SDK_INT);
+                System.out.println("Build.VERSION_CODES.R --- Build.VERSION_CODES.Q" + Build.VERSION_CODES.R);
+                if(!parentPath.contains("cache") &&  Build.VERSION.SDK_INT >=  Build.VERSION_CODES.R) {
+                    newFile = copyFileAndGetPath(webView.getContext(), Uri.parse(source), fileName);
+                    isFileSavedInCahed = true;
+                }
+                
+                System.out.println("newFile ----> newFile ----> newFile ----> newFile ----> newFile ----> newFile");
+                System.out.println(newFile.getPath());
+
+                Uri tmpSrc = Uri.parse(newFile.getPath());
                 final Uri sourceUri = resourceApi.remapUri(
-                        tmpSrc.getScheme() != null ? tmpSrc : Uri.fromFile(new File(source)));
+                        tmpSrc.getScheme() != null ? tmpSrc : Uri.fromFile(new File(newFile.getPath())));
 
                 HttpURLConnection conn = null;
                 int totalBytes = 0;
@@ -388,7 +432,6 @@ public class FileTransfer extends CordovaPlugin {
                     beforeData.append("Content-Type: ").append(mimeType).append(LINE_END).append(LINE_END);
                     byte[] beforeDataBytes = beforeData.toString().getBytes("UTF-8");
                     byte[] tailParamsBytes = (LINE_END + LINE_START + BOUNDARY + LINE_START + LINE_END).getBytes("UTF-8");
-
 
                     // Get a input stream of the file on the phone
                     OpenForReadResult readResult = resourceApi.openForRead(sourceUri);
@@ -518,6 +561,10 @@ public class FileTransfer extends CordovaPlugin {
                     // send request and retrieve response
                     result.setResponseCode(responseCode);
                     result.setResponse(responseString);
+
+                    if(isFileSavedInCahed) {
+                        newFile.delete();
+                    }
 
                     context.sendPluginResult(new PluginResult(PluginResult.Status.OK, result.toJSONObject()));
                 } catch (FileNotFoundException e) {
@@ -675,12 +722,10 @@ public class FileTransfer extends CordovaPlugin {
             return;
         }
 
-        /* This code exists for compatibility between 3.x and 4.x versions of Cordova.
-         * Previously the CordovaWebView class had a method, getWhitelist, which would
-         * return a Whitelist object. Since the fixed whitelist is removed in Cordova 4.x,
-         * the correct call now is to shouldAllowRequest from the plugin manager.
-         */
-        Boolean shouldAllowRequest = true;
+        Boolean shouldAllowRequest = null;
+        if (isLocalTransfer) {
+            shouldAllowRequest = true;
+        }
 
         if (shouldAllowRequest == null) {
             try {
@@ -695,12 +740,11 @@ public class FileTransfer extends CordovaPlugin {
         }
 
         if (!Boolean.TRUE.equals(shouldAllowRequest)) {
-            LOG.w(LOG_TAG, "Source URL is not in white list: '" + source + "'");
+            LOG.w(LOG_TAG, "The Source URL is not in the Allow List: '" + source + "'");
             JSONObject error = createFileTransferError(CONNECTION_ERR, source, target, null, 401, null);
             callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.IO_EXCEPTION, error));
             return;
         }
-
 
         final RequestContext context = new RequestContext(source, target, callbackContext);
         synchronized (activeRequests) {
@@ -795,7 +839,7 @@ public class FileTransfer extends CordovaPlugin {
                             // write bytes to file
                             byte[] buffer = new byte[MAX_BUFFER_SIZE];
                             int bytesRead = 0;
-                            outputStream = resourceApi.openOutputStream(targetUri);
+                            outputStream = new FileOutputStream(file);
                             while ((bytesRead = inputStream.read(buffer)) > 0) {
                                 outputStream.write(buffer, 0, bytesRead);
                                 // Send a progress event.
@@ -881,6 +925,125 @@ public class FileTransfer extends CordovaPlugin {
                 }
             }
         });
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private File copyFileToCache(Context applicationContext, String fileName) {
+        System.out.println("WORKING WORKING WORKING WORKINGWORKING WORKINGWORKING WORKING");
+        String pdf = MimeTypeMap.getSingleton().getMimeTypeFromExtension("pdf");
+        String doc = MimeTypeMap.getSingleton().getMimeTypeFromExtension("doc");
+        String docx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("docx");
+        String xls = MimeTypeMap.getSingleton().getMimeTypeFromExtension("xls");
+        String xlsx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("xlsx");
+        String ppt = MimeTypeMap.getSingleton().getMimeTypeFromExtension("ppt");
+        String pptx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("pptx");
+        String txt = MimeTypeMap.getSingleton().getMimeTypeFromExtension("txt");
+        String rtx = MimeTypeMap.getSingleton().getMimeTypeFromExtension("rtx");
+        String rtf = MimeTypeMap.getSingleton().getMimeTypeFromExtension("rtf");
+        String html = MimeTypeMap.getSingleton().getMimeTypeFromExtension("html");
+
+        //Table
+        Uri table = MediaStore.Files.getContentUri("external");
+        //Column
+        String[] column = {MediaStore.Files.FileColumns.DATA};
+        //Where
+        String where = MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?"
+                +" OR " +MediaStore.Files.FileColumns.MIME_TYPE + "=?";
+        //args
+        String[] args = new String[]{pdf,doc,docx,xls,xlsx,ppt,pptx,txt,rtx,rtf,html};
+
+
+        Cursor mediaCursor = applicationContext.getContentResolver().query(table, null, where, args, null);
+
+        while (mediaCursor.moveToNext()) {
+            String uri = mediaCursor.getString(mediaCursor.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME));
+            File file = new File(uri);
+
+            System.out.println(file.getName());
+        }
+
+        return new File(fileName);
+    }
+
+    private void getPicture(final String uploadSource, final String uploadTarget, JSONArray uploadArgs, CallbackContext uploadCallbackContext) {
+        source = uploadSource;
+        target = uploadTarget;
+        args = uploadArgs;
+        callbackContext = uploadCallbackContext;
+
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+
+        // Optionally, specify a URI for the file that should appear in the
+        // system file picker when it loads.
+//        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, pickerInitialUri);
+
+        if (this.cordova != null) {
+            this.cordova.startActivityForResult((CordovaPlugin) this, Intent.createChooser(intent, new String("Get Picture")), (0 + 1) * 16 + 0 + 1);
+        }
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode,
+                                 Intent resultData) {
+        if (resultCode == Activity.RESULT_OK) {
+            // The result data contains a URI for the document or directory that
+            // the user selected.
+            Uri uri = null;
+            if (resultData != null) {
+                uri = resultData.getData();
+                System.out.println("REACHED HERE --> REACHED HERE ---> REACHED HERE");
+                System.out.println(uri);
+                File newFile = copyFileAndGetPath(webView.getContext(), uri, "TEST");
+
+                System.out.println("FILE FILE ---> FILE FILEFILE FILE ---> FILE FILE");
+
+                try {
+                    upload(newFile.getPath(), target, args, callbackContext);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+                // Perform operations on the document using its URI.
+            }
+        }
+    }
+
+    private static File copyFileAndGetPath(Context context, Uri realUri, String filename) {
+        ParcelFileDescriptor pfd = null;
+        System.out.println("filename --> filename --> filename--> filename" + filename);
+        File outFile = new File(context.getCacheDir(), filename);
+        try {
+            pfd = context.getContentResolver().openFileDescriptor(realUri, "r");
+            FileInputStream fileInputStream = new FileInputStream(pfd.getFileDescriptor());
+
+            FileOutputStream fileOutputStream = new FileOutputStream(outFile);
+
+            byte[] buffer = new byte[1024];
+            int read;
+            while((read = fileInputStream.read(buffer)) != -1){
+                fileOutputStream.write(buffer, 0, read);
+            }
+            fileInputStream.close();
+            fileOutputStream.close();
+            // Let the document provider know you're done by closing the stream.
+            pfd.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return outFile;
     }
 
     /**
