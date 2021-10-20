@@ -58,7 +58,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
-
+import org.apache.cordova.AllowList;
 import android.webkit.CookieManager;
 
 public class FileTransfer extends CordovaPlugin {
@@ -715,9 +715,24 @@ public class FileTransfer extends CordovaPlugin {
             return;
         }
 
+        /* This code exists for compatibility between 3.x and 4.x versions of Cordova.
+         * Previously the CordovaWebView class had a method, getWhitelist, which would
+         * return a Whitelist object. Since the fixed whitelist is removed in Cordova 4.x,
+         * the correct call now is to shouldAllowRequest from the plugin manager.
+         */
         Boolean shouldAllowRequest = null;
         if (isLocalTransfer) {
             shouldAllowRequest = true;
+        }
+        if (shouldAllowRequest == null) {
+            try {
+                Method gwl = webView.getClass().getMethod("getWhitelist");
+                AllowList whitelist = (AllowList)gwl.invoke(webView);
+                shouldAllowRequest = whitelist.isUrlAllowListed(source);
+            } catch (NoSuchMethodException e) {
+            } catch (IllegalAccessException e) {
+            } catch (InvocationTargetException e) {
+            }
         }
 
         if (shouldAllowRequest == null) {
@@ -733,11 +748,12 @@ public class FileTransfer extends CordovaPlugin {
         }
 
         if (!Boolean.TRUE.equals(shouldAllowRequest)) {
-            LOG.w(LOG_TAG, "The Source URL is not in the Allow List: '" + source + "'");
+            LOG.w(LOG_TAG, "Source URL is not in white list: '" + source + "'");
             JSONObject error = createFileTransferError(CONNECTION_ERR, source, target, null, 401, null);
             callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.IO_EXCEPTION, error));
             return;
         }
+
 
         final RequestContext context = new RequestContext(source, target, callbackContext);
         synchronized (activeRequests) {
@@ -832,7 +848,7 @@ public class FileTransfer extends CordovaPlugin {
                             // write bytes to file
                             byte[] buffer = new byte[MAX_BUFFER_SIZE];
                             int bytesRead = 0;
-                            outputStream = new FileOutputStream(file);
+                            outputStream = resourceApi.openOutputStream(targetUri);
                             while ((bytesRead = inputStream.read(buffer)) > 0) {
                                 outputStream.write(buffer, 0, bytesRead);
                                 // Send a progress event.
@@ -918,47 +934,6 @@ public class FileTransfer extends CordovaPlugin {
                 }
             }
         });
-    }
-
-    private void getPicture(final String uploadSource, final String uploadTarget, JSONArray uploadArgs, CallbackContext uploadCallbackContext) {
-        source = uploadSource;
-        target = uploadTarget;
-        args = uploadArgs;
-        callbackContext = uploadCallbackContext;
-
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-
-        // Optionally, specify a URI for the file that should appear in the
-        // system file picker when it loads.
-//        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, pickerInitialUri);
-
-        if (this.cordova != null) {
-            this.cordova.startActivityForResult((CordovaPlugin) this, Intent.createChooser(intent, new String("Get Picture")), (0 + 1) * 16 + 0 + 1);
-        }
-    }
-
-    @Override
-    public void onActivityResult(int requestCode, int resultCode,
-                                 Intent resultData) {
-        if (resultCode == Activity.RESULT_OK) {
-            // The result data contains a URI for the document or directory that
-            // the user selected.
-            Uri uri = null;
-            if (resultData != null) {
-                uri = resultData.getData();
-                File newFile = copyFileAndGetPath(webView.getContext(), uri, "TEST");
-
-                try {
-                    upload(newFile.getPath(), target, args, callbackContext);
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
-
-                // Perform operations on the document using its URI.
-            }
-        }
     }
 
     private static File copyFileAndGetPath(Context context, Uri realUri, String filename) {
